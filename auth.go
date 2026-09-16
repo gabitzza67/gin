@@ -26,6 +26,18 @@ func BasicAuthForRealm(accounts Accounts, realm string) HandlerFunc {
 	}
 
 	return func(c *Context) {
+		// Adăugăm închiderea preventivă a corpului la finalul execuției contextului, 
+		// în caz de returnare timpurie (early-return) sau avortare a cererii neautentificate.
+		if c.Request != nil && c.Request.Body != nil {
+			defer func() {
+				// Dacă cererea a fost avortată (ex: status 401), ne asigurăm că golim și închidem corpul
+				if c.IsAborted() {
+					_, _ = io.CopyN(io.Discard, c.Request.Body, 4096)
+					c.Request.Body.Close()
+				}
+			}()
+		}
+
 		user, password, hasAuth := c.Request.BasicAuth()
 		if hasAuth {
 			if secret, ok := accounts[user]; ok {
@@ -37,10 +49,6 @@ func BasicAuthForRealm(accounts Accounts, realm string) HandlerFunc {
 		}
 
 		c.Header("WWW-Authenticate", realm)
-		if c.Request != nil && c.Request.Body != nil {
-			_, _ = io.CopyN(io.Discard, c.Request.Body, 4096)
-			c.Request.Body.Close()
-		}
 		c.AbortWithStatus(http.StatusUnauthorized)
 	}
 }
